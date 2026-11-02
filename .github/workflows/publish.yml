@@ -1,0 +1,40 @@
+# Publica a versão do Hórus Hub: cada zip enviado para incoming/ vira uma Release
+# (tag vX.Y.Z) com o zip anexado. Os apps do time procuram em /releases/latest.
+name: Publicar versão
+on:
+  push:
+    branches: [main]
+    paths: ['incoming/**']
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency: publish
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Criar as versões
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          shopt -s nullglob
+          published=0
+          for zip in incoming/HorusHub-atualizacao-*.zip; do
+            v="$(basename "$zip" .zip)"; v="${v#HorusHub-atualizacao-}"
+            notes="incoming/notas-$v.md"
+            [ -f "$notes" ] || { echo "Hórus Hub $v" > "/tmp/notas-$v.md"; notes="/tmp/notas-$v.md"; }
+            if gh release view "v$v" >/dev/null 2>&1; then
+              gh release upload "v$v" "$zip" --clobber
+            else
+              gh release create "v$v" "$zip" --title "Hórus Hub $v" --notes-file "$notes" --latest
+            fi
+            published=1
+          done
+          if [ "$published" = 1 ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git rm -q incoming/HorusHub-atualizacao-*.zip incoming/notas-*.md 2>/dev/null || true
+            git commit -qm "Versões publicadas" && git push
+          fi
